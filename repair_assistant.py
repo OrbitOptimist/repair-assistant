@@ -4,6 +4,7 @@ import pyttsx3
 import json
 import os
 import logging
+import numpy as np
 from time import sleep
 from repair_procedure import RepairProcedure
 
@@ -30,14 +31,29 @@ class RepairAssistant:
         self.setup_camera()
         
     def setup_camera(self):
-        """Initialize and configure the camera."""
-        self.camera = cv2.VideoCapture(CAMERA_INDEX)
-        if not self.camera.isOpened():
-            raise Exception("Could not open camera")
-            
-        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
-        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
-        self.camera.set(cv2.CAP_PROP_FPS, FPS)
+        """Initialize and configure the camera or create a demo frame."""
+        try:
+            self.camera = cv2.VideoCapture(CAMERA_INDEX)
+            if not self.camera.isOpened():
+                raise Exception("Could not open camera")
+                
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+            self.camera.set(cv2.CAP_PROP_FPS, FPS)
+        except Exception as e:
+            logger.warning(f"Camera not available: {e}. Using demo mode.")
+            self.camera = None
+            # Create a blank frame for demo mode
+            self.demo_frame = np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
+            cv2.putText(
+                self.demo_frame,
+                "Demo Mode - No Camera",
+                (50, FRAME_HEIGHT//2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (255, 255, 255),
+                2
+            )
             
     def speak(self, text):
         """Convert text to speech and print it."""
@@ -46,13 +62,14 @@ class RepairAssistant:
         self.engine.runAndWait()
         
     def capture_frame(self):
-        """Capture a frame from the camera."""
-        if self.camera is None:
-            self.setup_camera()
-        
-        ret, frame = self.camera.read()
-        if not ret:
-            raise Exception("Could not capture frame")
+        """Capture a frame from the camera or return demo frame."""
+        if self.camera is not None:
+            ret, frame = self.camera.read()
+            if not ret:
+                raise Exception("Could not capture frame")
+        else:
+            # Use demo frame
+            frame = self.demo_frame.copy()
             
         # Add progress indicator
         progress = self.repair_procedure.get_progress()
@@ -119,53 +136,62 @@ class RepairAssistant:
 
     def run(self):
         """Main application loop."""
-        self.speak("Welcome to the Repair Assistant. I'll guide you through the repair process.")
-        self.speak(f"Required tools: {', '.join(self.repair_procedure.get_required_tools())}")
-        self.speak("Press 'r' when ready to begin.")
+        print("\nWelcome to the Repair Assistant Demo!")
+        print("=====================================")
+        print(f"\nRequired tools: {', '.join(self.repair_procedure.get_required_tools())}")
+        print("\nAvailable commands:")
+        print("  n - Next step")
+        print("  b - Go back")
+        print("  h - Help")
+        print("  q - Quit")
+        print("\nPress 'n' when ready to begin.")
         
         try:
             while True:
-                frame = self.capture_frame()
-                cv2.imshow('Repair View', frame)
+                try:
+                    command = input("\nEnter command: ").lower().strip()
+                except (KeyboardInterrupt, EOFError):
+                    print("\nReceived interrupt signal. Ending repair session.")
+                    break
                 
-                key = cv2.waitKey(1) & 0xFF
-                
-                if key == ord('r'):  # 'r' for ready/next
+                if command == 'n':  # next
                     if self.repair_procedure.is_complete():
-                        self.speak("Repair procedure complete! Great job!")
+                        print("\nRepair procedure complete! Great job!")
                         break
                         
-                    frame_description = self.get_frame_description(frame)
+                    frame_description = "User is ready for next step"
                     guidance = self.get_ai_guidance(frame_description)
-                    self.speak(guidance)
+                    print(f"\nAssistant: {guidance}")
                     self.repair_procedure.get_next_step()
+                    print(f"\nProgress: {self.repair_procedure.get_progress()}%")
                     
-                elif key == ord('b'):  # 'b' for back
+                elif command == 'b':  # back
                     prev_step = self.repair_procedure.get_previous_step()
                     if prev_step:
-                        self.speak(f"Going back to previous step. {prev_step}")
+                        print(f"\nGoing back to previous step: {prev_step}")
                     else:
-                        self.speak("Already at the first step.")
+                        print("\nAlready at the first step.")
                         
-                elif key == ord('q'):  # 'q' to quit
-                    self.speak("Ending repair session.")
+                elif command == 'q':  # quit
+                    print("\nEnding repair session.")
                     break
                     
-                elif key == ord('h'):  # 'h' for help
-                    self.speak("""Available commands:
-                    Press 'r' to proceed to next step
-                    Press 'b' to go back to previous step
-                    Press 'h' for help
-                    Press 'q' to quit""")
+                elif command == 'h':  # help
+                    print("\nAvailable commands:")
+                    print("  n - Proceed to next step")
+                    print("  b - Go back to previous step")
+                    print("  h - Show this help message")
+                    print("  q - Quit the application")
+                    
+                else:
+                    print("\nUnknown command. Press 'h' for help.")
                     
         except Exception as e:
             logger.error(f"Error in main loop: {e}")
-            self.speak("An error occurred. Please restart the application.")
-            
-        finally:
-            if self.camera is not None:
-                self.camera.release()
-            cv2.destroyAllWindows()
+            print(f"\nError: {e}")
+            print("Please restart the application.")
+        
+        print("\nThank you for using the Repair Assistant!")
 
 if __name__ == "__main__":
     api_key = os.getenv("ANTHROPIC_API_KEY")
