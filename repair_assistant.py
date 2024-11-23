@@ -209,4 +209,3 @@ if __name__ == "__main__":
         logger.error(f"Application error: {e}")
         print(f"Error: {e}")
         exit(1)
-    assistant.run()
